@@ -1,0 +1,28 @@
+# Core ML/Computer Vision Libraries
+# NOTE: For conda environment 'soccerpy311' (Python 3.11.14)
+# These are already installed via conda/pip in your environment
+ultralytics>=8.3.0
+torch>=2.9.0
+torchvision>=0.24.0
+opencv-python>=4.12.0
+
+# Web Framework (install these in your conda environment)
+fastapi>=0.121.0
+uvicorn[standard]>=0.38.0
+python-multipart>=0.0.20
+
+# Data Processing
+pandas>=2.0.0
+numpy>=2.2.0
+
+# Dependencies
+pydantic>=2.12.0
+starlette>=0.49.0
+
+# Optional but recommended
+tqdm>=4.65.0
+Pillow>=12.0.0
+
+# Environment variables
+python-dotenv>=1.0.0
+

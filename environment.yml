@@ -1,0 +1,22 @@
+name: soccerpy311
+channels:
+  - pytorch
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.11.14
+  - pip
+  - numpy>=1.24.0
+  - opencv
+  - pytorch
+  - torchvision
+  - pip:
+    - ultralytics>=8.3.0
+    - fastapi>=0.121.0
+    - uvicorn[standard]>=0.38.0
+    - python-multipart>=0.0.20
+    - pandas>=2.0.0
+    - tqdm>=4.65.0
+    - pydantic>=2.12.0
+
+
