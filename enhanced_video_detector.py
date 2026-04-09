@@ -5,27 +5,6 @@ from ultralytics import YOLO
 import torch
 from collections import defaultdict, deque
 import math
-import os
-import gc
-from torch.serialization import add_safe_globals
-from ultralytics.nn.tasks import DetectionModel
-
-# configure safe globals for model loading
-add_safe_globals([DetectionModel])
-
-# video and model config
-VIDEO_PATH = "uploaded_videos/videoplaybacktest.mp4"
-# Using proven public model instead of custom-trained models
-# yolov8x.pt auto-downloads on first run, detects 'person' class for all players
-MODEL_PATHS = {
-    "players": "yolov8x.pt",  # Proven public model - auto-downloads
-    "ball": None,  # Will use same model with person detection
-    "field": None  # Will use same model with person detection
-}
-CONFIDENCE_THRESHOLD = 0.25  # Lower threshold for more detections
-OUTPUT_DIR = "runs/detect/enhanced_predict"
-SKIP_SECONDS = 0
-
 
 class EnhancedSoccerDetector:
     """comprehensive soccer detection system with tracking and field transformation."""
@@ -33,7 +12,7 @@ class EnhancedSoccerDetector:
     def __init__(self):
         # detection models
         self.models = {}
-        self.confidence_threshold = CONFIDENCE_THRESHOLD
+        self.confidence_threshold = 0.4
         
         # object classes and colors
         self.classes = {
@@ -60,14 +39,19 @@ class EnhancedSoccerDetector:
     
     def load_models(self):
         """load detection models for different objects."""
-        for name, path in MODEL_PATHS.items():
+        model_paths = {
+            'players': 'models/player.pt',
+            'ball': 'models/ball.pt',
+            'field': 'models/field.pt'
+        }
+        
+        for name, path in model_paths.items():
             try:
-                if path:
-                    # yolov8x.pt will auto-download if not present
+                if path and os.path.exists(path):
                     self.models[name] = YOLO(path)
-                    print(f"+ loaded {name} model: {path}")
+                    print(f"+ loaded {name} model")
                 else:
-                    print(f"- {name} model disabled (using main model)")
+                    print(f"- model file not found: {path}")
             except Exception as e:
                 print(f"- failed to load {name} model: {e}")
     
@@ -81,16 +65,16 @@ class EnhancedSoccerDetector:
             'referees': []
         }
         
-        # detect players using yolov8x (class 0 = person)
+        # detect players and separate goalkeepers
         if 'players' in self.models:
-            results = self.models['players'].predict(frame, conf=self.confidence_threshold, verbose=False, classes=[0])[0]
+            results = self.models['players'].predict(frame, conf=self.confidence_threshold, verbose=False)[0]
             if results.boxes is not None:
                 for box in results.boxes:
                     x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
                     conf = box.conf[0].cpu().numpy()
                     cls = int(box.cls[0].cpu().numpy())
                     
-                    # determine if goalkeeper based on position
+                    # determine if goalkeeper based on position or class
                     obj_class = self.classify_player_role(x1, y1, x2, y2, frame.shape)
                     
                     detections[obj_class].append({
@@ -138,6 +122,8 @@ class EnhancedSoccerDetector:
         if center_y < h * goal_area_threshold or center_y > h * (1 - goal_area_threshold):
             return 'goalkeepers'
         
+        # referees can be identified by different movement patterns or colors
+        # for now, classify based on position away from main player clusters
         return 'players'
     
     def update_tracks(self, detections, frame_num):
@@ -421,103 +407,5 @@ class EnhancedSoccerDetector:
         
         return spatial_data
 
-
-def process_video(video_path, output_dir):
-    """process video with enhanced detection and tracking."""
-    # create output directory
-    os.makedirs(output_dir, exist_ok=True)
-    
-    # initialize detector
-    detector = EnhancedSoccerDetector()
-    
-    # open video
-    cap = cv2.VideoCapture(video_path)
-    if not cap.isOpened():
-        raise ValueError(f"could not open video: {video_path}")
-    
-    # get video properties
-    fps = int(cap.get(cv2.CAP_PROP_FPS))
-    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    
-    # setup video writer
-    output_path = os.path.join(output_dir, f"enhanced_{os.path.basename(video_path)}")
-    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-    out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
-    
-    print(f"\nprocessing video: {os.path.basename(video_path)}")
-    print(f"resolution: {width}x{height}, fps: {fps}, frames: {total_frames}")
-    print(f"output: {output_path}\n")
-    
-    frame_count = 0
-    all_spatial_data = []
-    
-    try:
-        while True:
-            ret, frame = cap.read()
-            if not ret:
-                break
-            
-            # process frame with enhanced detection
-            output_frame, tracks = detector.process_frame(frame, frame_count)
-            
-            # collect spatial data
-            spatial_data = detector.get_spatial_data(tracks)
-            all_spatial_data.extend([{
-                **data, 
-                'frame': frame_count,
-                'timestamp': frame_count / fps
-            } for data in spatial_data])
-            
-            # write frame
-            out.write(output_frame)
-            frame_count += 1
-            
-            # progress update
-            if frame_count % 30 == 0:
-                progress = (frame_count / total_frames) * 100
-                print(f"progress: {frame_count}/{total_frames} frames ({progress:.1f}%)")
-    
-    except KeyboardInterrupt:
-        print("\n\nprocessing interrupted by user.")
-    except Exception as e:
-        print(f"\n\nerror during processing: {e}")
-        raise
-    finally:
-        # cleanup
-        cap.release()
-        out.release()
-        
-        # save spatial data
-        if all_spatial_data:
-            import pandas as pd
-            df = pd.DataFrame(all_spatial_data)
-            spatial_output = os.path.join(output_dir, f"spatial_data_{os.path.basename(video_path).replace('.mp4', '.csv')}")
-            df.to_csv(spatial_output, index=False)
-            print(f"\n+ spatial data saved to: {spatial_output}")
-        
-        print(f"\n+ processing complete!")
-        print(f"+ processed {frame_count} frames")
-        print(f"+ output saved to: {output_path}")
-    
-    return output_path, all_spatial_data
-
-
-def main():
-    """main function to run enhanced video processing."""
-    try:
-        # validate video path
-        if not os.path.exists(VIDEO_PATH):
-            raise FileNotFoundError(f"video file not found: {VIDEO_PATH}")
-        
-        # process video with enhanced detection
-        process_video(VIDEO_PATH, OUTPUT_DIR)
-        
-    except Exception as e:
-        print(f"error: {e}")
-        raise
-
-
-if __name__ == "__main__":
-    main()
+# import os for model loading
+import os
